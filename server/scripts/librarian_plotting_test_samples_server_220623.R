@@ -1,0 +1,225 @@
+## This script reads in a pinned umap model of a collection of library compositions.
+## Base compositions from one or several additional libraries (mimicking the libraries to test) get projected onto the existing UMAP.
+## Three plots are produced: One UMAP with test library indicated, one probability plot (split by library), also with test library
+## indicated, and a bar chart which summarises the probabilities for each library in the tile the test library is located in.
+
+
+
+## Loading packages
+
+library(pins)
+library(umap)
+library(tidyverse)
+library(ggrastr)
+
+
+## Getting input file path
+
+args = commandArgs(trailingOnly=TRUE)
+
+
+## creating the pin board
+
+board <- board_folder("./scripts")
+
+
+## loading the pinned model and coordinates
+
+board %>% 
+  pin_read("compositions_umap") -> compositions_umap
+
+board %>% 
+  pin_read("compositions_umap_results") -> compositions_umap_results
+
+
+## Loading gathered library compositions
+
+read_tsv(file("stdin"), col_names = FALSE) -> test.import
+
+
+
+## header for the handling of the test library
+
+header <- as.character(expression(sample, A1, C1, G1, T1, N1, A2, C2, G2, T2, N2, A3, C3, G3, T3, N3, A4, C4, G4, T4, N4, A5, C5, G5, T5, N5, A6, C6, G6, T6, N6, A7, C7, G7, T7, N7, A8, C8, G8, T8, N8, A9, C9, G9, T9, N9, A10, C10, G10, T10, N10, A11, C11, G11, T11, N11, A12, C12, G12, T12, N12, A13, C13, G13, T13, N13, A14, C14, G14, T14, N14, A15, C15, G15, T15, N15, A16, C16, G16, T16, N16, A17, C17, G17, T17, N17, A18, C18, G18, T18, N18, A19, C19, G19, T19, N19, A20, C20, G20, T20, N20, A21, C21, G21, T21, N21, A22, C22, G22, T22, N22, A23, C23, G23, T23, N23, A24, C24, G24, T24, N24, A25, C25, G25, T25, N25, A26, C26, G26, T26, N26, A27, C27, G27, T27, N27, A28, C28, G28, T28, N28, A29, C29, G29, T29, N29, A30, C30, G30, T30, N30, A31, C31, G31, T31, N31, A32, C32, G32, T32, N32, A33, C33, G33, T33, N33, A34, C34, G34, T34, N34, A35, C35, G35, T35, N35, A36, C36, G36, T36, N36, A37, C37, G37, T37, N37, A38, C38, G38, T38, N38, A39, C39, G39, T39, N39, A40, C40, G40, T40, N40, A41, C41, G41, T41, N41, A42, C42, G42, T42, N42, A43, C43, G43, T43, N43, A44, C44, G44, T44, N44, A45, C45, G45, T45, N45, A46, C46, G46, T46, N46, A47, C47, G47, T47, N47, A48, C48, G48, T48, N48, A49, C49, G49, T49, N49, A50, C50, G50, T50, N50
+))
+
+## Some tidying
+
+colnames(test.import) <- header
+
+test.import %>% 
+  drop_na() %>%  # get rid of the ones that don't have compositions
+  mutate(Nsum = rowSums(select(.,starts_with("N")))) %>% 
+  filter(Nsum < 301) %>% # should give a warning here instead
+  drop_na() %>% 
+  select(-starts_with("N"), -Nsum) -> test # disregarding Ns
+
+
+## Arranging test data for umap
+
+test %>% 
+  column_to_rownames(var = "sample")%>% 
+  as.data.frame() -> test.data
+
+
+## setting global seed which should be used by umap and the predict functions
+
+set.seed(111)
+
+
+## Projecting test library
+
+predict(compositions_umap, test.data) -> test_umap
+
+
+## Preparing for plotting
+
+test_umap %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  as_tibble() %>% 
+  rename(sample = rowname, UMAP1 = V1, UMAP2 = V2) -> test_coordinates
+
+
+## Plotting colours
+
+colours <- c("#8cb369","#f4e285","#f4a259","#5b8e7d","#bc4b51","#7b4b94","#7d82b8","#c200fb","#ec0868","#424b54", "#39375B", "#F7FE72", "#BAD7F2", "#246EB9" )
+types <- c("ATAC-seq","BS-seq", "ChIA-PET","ChIP-seq", "DNase-HS", "Hi-C", "MBD-seq", "MeDIP-seq", "miRNA-seq", "MNase-seq", "ncRNA-seq","RIP-seq", "RNA-seq", "ssRNA-seq")
+
+names(colours) <- types
+
+
+
+## Plotting
+
+compositions_umap_results %>%
+  mutate(lib_type = gsub("-Seq", "-seq", lib_type)) %>% 
+  mutate(lib_type = gsub("Bisulfite-seq", "BS-seq", lib_type)) %>% 
+  mutate(lib_type = gsub("DNase-Hypersensitivity", "DNase-HS", lib_type)) %>% 
+  ggplot(aes(UMAP1,UMAP2)) +
+  geom_point(size = 1.5, aes(colour = lib_type, group = SRR)) +
+  geom_point(data = test_coordinates, aes(UMAP1, UMAP2), colour = "black", shape = 1, size = 5, stroke = 3) +
+  geom_text(data = test_coordinates, aes(UMAP1, UMAP2, label = sample), size = 6, nudge_x = 1, nudge_y = 1) +
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_text(size = 12)) +
+  #ylim(-10, 10) +
+  #xlim(-12, 25) +
+  coord_fixed() +
+  guides(colour = guide_legend(override.aes = list(size=4))) + 
+  scale_colour_manual(values = colours) +
+  theme(text = element_text(family = "sans"), legend.title = element_blank(), aspect.ratio = 0.8) -> compositions_umap_results_plot
+
+rasterise(compositions_umap_results_plot, layers = 'Point', dpi = 300) -> compositions_umap_results_plot
+
+ggsave(filename = file.path(args[2],"compositions_map.svg"), width = 8, height = 6, units = "in", device = svg)
+
+
+## Introducing a grid to the plot
+
+compositions_umap_results %>% 
+  mutate(lib_type = if_else(lib_type == "ATAC-seq", "ATAC-Seq", lib_type)) %>% 
+  mutate(UMAP1_grid = round(UMAP1)) %>% 
+  mutate(UMAP2_grid = round(UMAP2)) %>% 
+  unite(col = "grid_ID", UMAP1_grid, UMAP2_grid, remove = F) %>% 
+  group_by(grid_ID) %>% 
+  add_count(name = "n per raster point") %>% 
+  ungroup() %>% 
+  group_by(lib_type) %>% 
+  add_count(name = "n per lib_type") %>% 
+  ungroup() -> umap_grid
+
+
+## Calculating the percentages of the library type that is located in each grid tile
+## total is number of library type examples
+
+umap_grid %>% 
+  group_by(grid_ID, lib_type) %>% 
+  count() %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = lib_type, values_from = n, values_fill = 0) %>% 
+  mutate_at(vars(2:10), ~. / sum(.)*100) -> grid_type_percentages
+
+
+## Calculating the percentages of each library type located in each grid tile
+## Correcting for the number of examples in each library type (total is 100%)
+
+grid_type_percentages %>% 
+  pivot_longer(2:last_col(), names_to = "lib_type") %>% 
+  group_by(grid_ID) %>% 
+  mutate(tile_total = sum(value)) %>% 
+  mutate(corr_lib_per_tile = value/tile_total*100) %>% 
+  select(grid_ID, lib_type, corr_lib_per_tile) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = "lib_type", values_from = "corr_lib_per_tile") -> grid_tile_corr_percentages
+
+
+## Joining with the other umap plotting information
+
+umap_grid %>% 
+  select(-`n per raster point`, -`n per lib_type`) %>% 
+  left_join(grid_tile_corr_percentages) -> umap_grid_corr_tile # percentage of each library per tile
+
+
+## Long format for plotting
+
+umap_grid_corr_tile %>% 
+  select(grid_ID, UMAP1_grid, UMAP2_grid, 11:last_col()) %>% 
+  distinct(grid_ID, .keep_all = T) %>% 
+  pivot_longer(4:last_col(), names_to = "library_type", values_to = "percentage") -> umap_grid_tile_long
+
+
+## Plotting percent of total library 
+
+umap_grid_tile_long %>% 
+  mutate(library_type = gsub("-Seq", "-seq", library_type)) %>% 
+  mutate(library_type = gsub("Bisulfite-seq", "BS-seq", library_type)) %>% 
+  mutate(library_type = gsub("DNase-Hypersensitivity", "DNase-HS", library_type)) %>% 
+  ggplot(aes(UMAP1_grid,UMAP2_grid)) +
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.title = element_blank(), panel.background = element_rect(fill = "#faebdd"), plot.title = element_text(size = 14, hjust = 0.5)) +
+  geom_tile(aes(fill = percentage)) +
+  scale_fill_viridis_c(option = "inferno", direction = -1) +
+  geom_point(data = test_coordinates, aes(UMAP1, UMAP2), fill = "black", colour = "#609CE1", shape = 1, size = 3, stroke = 1 ) +
+  geom_text(data = test_coordinates, aes(x=UMAP1, y=UMAP2, label = sample), size = 3, nudge_x = 2, nudge_y = 1) +
+  ggtitle("percent of library per tile") +
+  facet_wrap(facets = "library_type", ncol = 5) +
+  theme(text = element_text(family = "sans"), aspect.ratio = 0.8, panel.background = element_rect(fill = "#feffe9"), panel.grid = element_blank(), plot.title = element_text(size = 14, hjust = 0.5)) -> umap_grid_tile_long_plot
+
+rasterise(umap_grid_tile_long_plot, layers = 'Tile', dpi = 300) -> compositions_umap_results_plot
+
+ggsave(filename = file.path(args[2],"probability_maps.svg"), width = 12, height = 8, units = "in", device = svg)
+
+
+## Pulling out probabilities for the test library
+
+test_coordinates %>% 
+  mutate(UMAP1_grid = round(UMAP1)) %>% 
+  mutate(UMAP2_grid = round(UMAP2)) %>% 
+  unite(col = "grid_ID", UMAP1_grid, UMAP2_grid) -> test_grid
+
+test_grid %>% 
+  left_join(grid_tile_corr_percentages) %>% 
+  pivot_longer(5:last_col(), names_to = "library_type", values_to = "percent") -> test_percentage
+
+
+
+## Plotting grid stats as heatmap
+
+test_percentage %>% 
+  mutate(library_type = factor(library_type, levels = sort(unique(library_type), decreasing = TRUE))) %>% 
+  mutate(sample = sample) %>% 
+  ggplot(aes(sample, library_type, fill = percent)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "red") +
+  geom_text(aes(label = round(percent))) +
+  theme_bw(base_size = 14) +
+  theme(text = element_text(family = "sans"), axis.title.y = element_blank(), legend.position = "none", panel.grid = element_blank()) -> test_percentage_heatmap
+
+sample_number <- nrow(test)
+
+ggsave(filename = file.path(args[2],"prediction_plot.svg"), width = (2 + (sample_number * 0.3)), height = 5, units = "in", device = svg)
+
+
+
+
+

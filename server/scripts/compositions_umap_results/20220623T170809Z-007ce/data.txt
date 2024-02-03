@@ -1,0 +1,8 @@
+file: compositions_umap_results.rds
+file_size: 177436
+pin_hash: 007ced75113e1af3
+type: rds
+title: 'compositions_umap_results: a pinned 2975 x 7 data frame'
+description: ~
+created: 20220623T170809Z
+api_version: 1.0
